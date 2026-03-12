@@ -36,4 +36,10 @@ class ScopedMixin:
     scope_id: Mapped[uuid.UUID] = mapped_column(
         nullable=False
     )
+
+
+class ScheduleType(str, enum.Enum):
+    WORK = "work"
+    PERSONAL = "personal"
+    BLOCKED = "blocked"
     
