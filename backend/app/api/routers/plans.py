@@ -7,13 +7,32 @@ from app.db.session import DBSession
 from app.models.base import ScopeType
 from app.schemas.plans import PlanGenerate, PlanResponse
 from app.services import plan_service
+from app.services.scheduler import ValidationError
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
+
 @router.post("/generate", response_model=PlanResponse, status_code=status.HTTP_201_CREATED)
 def create_plan(payload: PlanGenerate, db: DBSession, current_user: CurrentUser):
-    plan = plan_service.generate_plan(db, ScopeType.USER, current_user.id, payload.planning_window_start, payload.planning_window_end)
-    return plan
+    """Generate a new plan for the current user.
+
+    Validates the planning window (1-14 days, starts today or later) and task data
+    before scheduling. Returns 422 if validation fails.
+    """
+    try:
+        plan = plan_service.generate_plan(
+            db,
+            ScopeType.USER,
+            current_user.id,
+            payload.planning_window_start,
+            payload.planning_window_end,
+        )
+        return plan
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"errors": e.errors},
+        )
 
 @router.get("/{plan_id}", response_model=PlanResponse)
 def get_plan(plan_id: uuid.UUID, db: DBSession, current_user: CurrentUser):

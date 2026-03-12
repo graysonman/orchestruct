@@ -55,6 +55,7 @@ def generate_plan(
                 dislike_score=task.dislike_score,
                 due_date=task.due_date,
                 priority_weight=goal.priority_weight,
+                goal_id=str(goal.id),
             ))
 
     # Build availability grid from calendar
