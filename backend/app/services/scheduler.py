@@ -709,6 +709,7 @@ def run(
     window_end: date,
     availability: list[DayAvailability] | None = None,
     validate: bool = True,
+    estimation_bias_multiplier: float = 1.0,
 ) -> tuple[list[ScheduledItem], dict]:
     """Entry point. Returns (scheduled_items, risk_summary).
 
@@ -719,6 +720,8 @@ def run(
         availability: Optional availability grid from calendar service.
                      If None, uses default work hours.
         validate: If True, validate inputs and raise ValidationError on failure.
+        estimation_bias_multiplier: Scales estimated_minutes by this factor.
+                     Derived from UserFeatures; default 1.0 means no change.
 
     Raises:
         ValidationError: If validate=True and inputs fail validation.
@@ -730,6 +733,14 @@ def run(
             errors.extend(validate_tasks(tasks))
         if errors:
             raise ValidationError(errors)
+
+    if estimation_bias_multiplier != 1.0:
+        from dataclasses import replace
+        tasks = [
+            replace(t, estimated_minutes=int(t.estimated_minutes * estimation_bias_multiplier))
+            if t.estimated_minutes else t
+            for t in tasks
+        ]
 
     if not tasks:
         return [], {

@@ -10,7 +10,7 @@ from app.models.base import ScopeType
 from app.models.goal import Goal
 from app.models.plan import Plan, PlanItem
 from app.models.task import Task
-from app.services import availability_service, scheduler
+from app.services import availability_service, behavior_service, scheduler
 from app.services.scheduler import ScheduledTask
 
 
@@ -28,6 +28,12 @@ def generate_plan(
     - Blocked calendar events
     - Personal events
     """
+    estimation_bias_multiplier = 1.0
+    if scope_type == ScopeType.USER:
+        features = behavior_service.get_user_features(db, scope_id)
+        if features:
+            estimation_bias_multiplier = features.estimation_bias_multiplier
+
     # Get all active goals for this scope
     goals = list(db.scalars(
         select(Goal).where(
@@ -72,6 +78,7 @@ def generate_plan(
         window_start,
         window_end,
         availability=availability,
+        estimation_bias_multiplier=estimation_bias_multiplier,
     )
 
     # Create plan record
