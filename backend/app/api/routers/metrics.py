@@ -1,9 +1,9 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter
 
 from app.api.deps import CurrentUser
 from app.db.session import DBSession
-from app.schemas.metrics import UserFeaturesResponse
+from app.schemas.metrics import AlignmentScoreResponse, UserFeaturesResponse
 from app.services import behavior_service
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
@@ -30,3 +30,14 @@ def get_my_metrics(db: DBSession, current_user: CurrentUser):
         features = behavior_service.update_user_features(db, current_user.id)
 
     return features
+
+
+@router.get("/alignment", response_model=AlignmentScoreResponse)
+def get_alignment_score(
+    week_start: date,
+    week_end: date,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    """Return alignment score for the given week window."""
+    return behavior_service.compute_alignment_score(db, current_user.id, week_start, week_end)

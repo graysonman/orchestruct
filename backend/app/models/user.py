@@ -8,6 +8,7 @@ from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.calendar_event import CalendarEvent
+    from app.models.nudge import Nudge
     from app.models.user_schedule_config import UserScheduleConfig
 
 
@@ -29,6 +30,11 @@ class User(Base, TimestampMixin):
     )
     calendar_events: Mapped[list["CalendarEvent"]] = relationship(
         "CalendarEvent",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    nudges: Mapped[list["Nudge"]] = relationship(
+        "Nudge",
         back_populates="user",
         cascade="all, delete-orphan"
     )

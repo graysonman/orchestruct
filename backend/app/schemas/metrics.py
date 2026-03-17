@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pydantic import BaseModel
 
 
@@ -16,3 +16,11 @@ class UserFeaturesResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AlignmentScoreResponse(BaseModel):
+    plan_items: int
+    logged_tasks: int
+    alignment_score: float
+    week_start: date
+    week_end: date

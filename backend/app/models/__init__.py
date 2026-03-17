@@ -1,5 +1,6 @@
 from app.models.base import Base, ScopeType, ScheduleType
 from app.models.goal import Goal
+from app.models.nudge import Nudge
 from app.models.organization import Organization
 from app.models.role import Role
 from app.models.task import Task
@@ -25,4 +26,5 @@ __all__ = [
     "PlanItem",
     "UserScheduleConfig",
     "CalendarEvent",
+    "Nudge",
 ]
