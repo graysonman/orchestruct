@@ -31,4 +31,7 @@ class PlanItem(Base):
     risk_score: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     rationale: Mapped[dict | None] = mapped_column(JSON)
+    assigned_to_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
     plan: Mapped["Plan"] = relationship("Plan", back_populates="items")

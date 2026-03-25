@@ -10,8 +10,8 @@ from app.models.base import ScopeType
 from app.models.goal import Goal
 from app.models.plan import Plan, PlanItem
 from app.models.task import Task
-from app.services import availability_service, behavior_service, scheduler
-from app.services.scheduler import ScheduledTask
+from app.services import availability_service, behavior_service, scheduler, team_service
+from app.services.scheduler import MemberAvailability, ScheduledTask
 
 
 def generate_plan(
@@ -21,19 +21,7 @@ def generate_plan(
     window_start: date,
     window_end: date,
 ) -> Plan:
-    """Generate a plan for a user/team/org within a date range.
-
-    Integrates with the calendar system to respect:
-    - User's configured work hours
-    - Blocked calendar events
-    - Personal events
-    """
-    estimation_bias_multiplier = 1.0
-    if scope_type == ScopeType.USER:
-        features = behavior_service.get_user_features(db, scope_id)
-        if features:
-            estimation_bias_multiplier = features.estimation_bias_multiplier
-
+    """Generate a plan for a user/team/org within a date range."""
     # Get all active goals for this scope
     goals = list(db.scalars(
         select(Goal).where(
@@ -64,22 +52,43 @@ def generate_plan(
                 goal_id=str(goal.id),
             ))
 
-    # Build availability grid from calendar
-    # For USER scope, we use the scope_id as user_id
-    availability = None
     if scope_type == ScopeType.USER:
+        # Single-user path: apply behavioral bias, build one availability grid
+        estimation_bias_multiplier = 1.0
+        features = behavior_service.get_user_features(db, scope_id)
+        if features:
+            estimation_bias_multiplier = features.estimation_bias_multiplier
+
         availability = availability_service.build_availability_grid(
             db, scope_id, window_start, window_end
         )
+        items, risk_summary = scheduler.run(
+            scheduled_tasks,
+            window_start,
+            window_end,
+            availability=availability,
+            estimation_bias_multiplier=estimation_bias_multiplier,
+        )
 
-    # Run scheduler with availability
-    items, risk_summary = scheduler.run(
-        scheduled_tasks,
-        window_start,
-        window_end,
-        availability=availability,
-        estimation_bias_multiplier=estimation_bias_multiplier,
-    )
+    elif scope_type == ScopeType.TEAM:
+        # Team path: build per-member availability grids and assign tasks across members
+        # TODO Stage 7: extend alignment score for team scope
+        members_db = team_service.list_members(db, scope_id)
+        member_availabilities = []
+        for m in members_db:
+            avail = availability_service.build_availability_grid(
+                db, m.user_id, window_start, window_end
+            )
+            features = behavior_service.get_user_features(db, m.user_id)
+            bias = features.estimation_bias_multiplier if features else 1.0
+            member_availabilities.append(MemberAvailability(m.user_id, avail, bias))
+
+        items, risk_summary = scheduler.assign_tasks_to_members(
+            scheduled_tasks, window_start, window_end, member_availabilities
+        )
+
+    else:
+        items, risk_summary = [], {}
 
     # Create plan record
     plan = Plan(
@@ -93,7 +102,7 @@ def generate_plan(
     )
     db.add(plan)
 
-    # Create plan items
+    # Create plan items — assigned_to_user_id is set for team plans
     for item in items:
         planned_item = PlanItem(
             id=uuid.uuid4(),
@@ -104,6 +113,7 @@ def generate_plan(
             scheduled_date=item.scheduled_date,
             risk_score=item.risk_score,
             rationale=item.rationale,
+            assigned_to_user_id=item.assigned_to_user_id,
         )
         db.add(planned_item)
 

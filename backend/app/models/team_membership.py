@@ -13,3 +13,4 @@ class TeamMembership(Base, TimestampMixin, ScopedMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
     role_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("roles.id"), nullable=True)
+    is_admin: Mapped[bool] = mapped_column(default=False, nullable=False)

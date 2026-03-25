@@ -1,5 +1,6 @@
 """Task scheduler for placing tasks into available time slots."""
 
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -36,6 +37,20 @@ class ScheduledItem:
     end_time: time
     risk_score: float
     rationale: dict[str, Any]
+    assigned_to_user_id: uuid.UUID | None = None
+
+
+@dataclass
+class MemberAvailability:
+    """Availability and behavioral profile for a single team member.
+
+    Used by assign_tasks_to_members() to track per-member capacity.
+    estimation_bias_multiplier adjusts effective capacity: a multiplier > 1
+    means the member historically underestimates, so they absorb fewer tasks.
+    """
+    user_id: uuid.UUID
+    availability: list[DayAvailability]
+    estimation_bias_multiplier: float = 1.0
 
 
 # Default fallback values (used when no user config)
@@ -701,6 +716,91 @@ def compute_risk_metrics(
         "deadline_warnings": deadline_warnings,
         "recommendations": recommendations,
     }
+
+
+def assign_tasks_to_members(
+    tasks: list[ScheduledTask],
+    window_start: date,
+    window_end: date,
+    members: list[MemberAvailability],
+) -> tuple[list[ScheduledItem], dict]:
+    """Assign tasks across team members using a greedy capacity-based algorithm.
+
+    Args:
+        tasks: Tasks to schedule (all pending tasks for the team)
+        window_start: Start of the planning window
+        window_end: End of the planning window
+        members: List of MemberAvailability, one per team member
+
+    Returns:
+        (scheduled_items, risk_summary) — same shape as run()
+    """
+    if not members or not tasks:
+        return [], compute_risk_metrics([], tasks)
+
+    today = date.today()
+    sorted_tasks = sorted(tasks, key=lambda t: _score(t, today), reverse=True)
+
+    # Per-member, per-day: how many minutes remain available
+    # member_free[user_id][day_date] = remaining_minutes (adjusted for bias)
+    member_free: dict[uuid.UUID, dict[date, int]] = {}
+    # Per-member, per-day: current cursor position (what time we're up to)
+    member_cursors: dict[uuid.UUID, dict[date, time]] = {}
+    # Per-member, per-day: free slots list (for _find_slot_in_free_time)
+    member_slots: dict[uuid.UUID, dict[date, list]] = {}
+
+    for member in members:
+        uid = member.user_id
+        member_free[uid] = {}
+        member_cursors[uid] = {}
+        member_slots[uid] = {}
+        for day in member.availability:
+            if day.work_hours and day.free_slots:
+                raw_free = sum(
+                    _minutes_between(slot.start, slot.end) for slot in day.free_slots
+                )
+                # Effective capacity shrinks if the member underestimates time
+                effective_free = int(raw_free / member.estimation_bias_multiplier)
+                member_free[uid][day.date] = effective_free
+                member_cursors[uid][day.date] = day.free_slots[0].start
+                member_slots[uid][day.date] = day.free_slots
+
+    scheduled = []
+
+    for task in sorted_tasks:
+        best = None       
+        best_free = -1    
+
+        for member in members:
+            uid = member.user_id
+            for day, free_mins in member_free[uid].items():
+                if free_mins < task.estimated_minutes:
+                    continue
+                slot = _find_slot_in_free_time(
+                    member_slots[uid][day],
+                    member_cursors[uid][day],
+                    task.estimated_minutes,
+                )
+                if slot and free_mins > best_free:
+                    best = (uid, day, slot[0], slot[1])
+                    best_free = free_mins
+
+        if best:
+            uid, day, start, end = best
+            scheduled.append(ScheduledItem(
+                task_id=task.task_id,
+                scheduled_date=day,
+                start_time=start,
+                end_time=end,
+                risk_score=task.difficulty * task.dislike_score / 25.0,
+                rationale={"reason": "team_greedy", "placed_on": str(day)},
+                assigned_to_user_id=uid,
+            ))
+            member_free[uid][day] -= task.estimated_minutes
+            member_cursors[uid][day] = end
+
+    risk_summary = compute_risk_metrics(scheduled, tasks)
+    return scheduled, risk_summary
 
 
 def run(

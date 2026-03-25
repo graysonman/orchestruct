@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, calendar, goals, metrics, nudges, plans, tasks, worklogs
+from app.api.routers import auth, calendar, goals, metrics, nudges, plans, tasks, teams, worklogs
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -24,6 +24,7 @@ app.include_router(calendar.router, prefix="/api/v1")
 app.include_router(worklogs.router, prefix="/api/v1")
 app.include_router(metrics.router, prefix="/api/v1")
 app.include_router(nudges.router, prefix="/api/v1")
+app.include_router(teams.router, prefix="/api/v1")
 
 
 @app.get("/health")

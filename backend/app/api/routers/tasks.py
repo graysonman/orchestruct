@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser
+from app.api.routers.goals import can_access_scoped_record
 from app.db.session import DBSession
 from app.schemas.goals import TaskCreate, TaskResponse, TaskUpdate
 from app.services import goal_service, task_service
@@ -11,9 +12,9 @@ router = APIRouter(prefix="/goals/{goal_id}/tasks", tags=["tasks"])
 
 
 def _get_owned_goal(goal_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
-    """Fetch a goal and verify ownership. Raises 404 if missing or not owned."""
+    """Fetch a goal and verify access. Raises 404 if missing or inaccessible."""
     goal = goal_service.get_goal(db, goal_id)
-    if not goal or goal.scope_id != current_user.id:
+    if not goal or not can_access_scoped_record(db, goal, current_user):
         raise HTTPException(status_code=404, detail="Goal not found")
     return goal
 

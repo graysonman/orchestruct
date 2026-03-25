@@ -14,6 +14,8 @@ from app.models.base import ScopeType
 class PlanGenerate(BaseModel):
     planning_window_start: date
     planning_window_end: date
+    scope_type: ScopeType = ScopeType.USER
+    scope_id: uuid.UUID | None = None  # team UUID when scope_type=TEAM
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,6 +119,7 @@ class PlanItemResponse(BaseModel):
     risk_score: float | None
     rationale: dict | None
     created_at: datetime
+    assigned_to_user_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 
