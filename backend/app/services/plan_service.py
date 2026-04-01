@@ -1,7 +1,7 @@
 """Plan generation service integrating tasks with calendar availability."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime, time
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,7 +10,8 @@ from app.models.base import ScopeType
 from app.models.goal import Goal
 from app.models.plan import Plan, PlanItem
 from app.models.task import Task
-from app.services import availability_service, behavior_service, scheduler, team_service
+from app.models.user import User
+from app.services import availability_service, behavior_service, google_calendar_service, scheduler, team_service
 from app.services.scheduler import MemberAvailability, ScheduledTask
 
 
@@ -53,7 +54,24 @@ def generate_plan(
             ))
 
     if scope_type == ScopeType.USER:
-        # Single-user path: apply behavioral bias, build one availability grid
+        # Auto-sync Google Calendar before building availability grid
+        google_conflicts = []
+        user = db.get(User, scope_id)
+        if user and user.google_access_token:
+            try:
+                access_token = google_calendar_service.ensure_fresh_token(db, user)
+                time_min = datetime.combine(window_start, time.min)
+                time_max = datetime.combine(window_end, time.max)
+                google_events = google_calendar_service.fetch_google_events(
+                    access_token, time_min, time_max
+                )
+                google_calendar_service.sync_google_to_local(db, scope_id, google_events)
+                google_conflicts = google_calendar_service.detect_conflicts(
+                    db, scope_id, google_events
+                )
+            except Exception:
+                pass  # Google sync failure is non-fatal — plan with local data
+
         estimation_bias_multiplier = 1.0
         features = behavior_service.get_user_features(db, scope_id)
         if features:
@@ -69,6 +87,7 @@ def generate_plan(
             availability=availability,
             estimation_bias_multiplier=estimation_bias_multiplier,
         )
+        risk_summary["google_conflicts"] = google_conflicts
 
     elif scope_type == ScopeType.TEAM:
         # Team path: build per-member availability grids and assign tasks across members
@@ -129,10 +148,21 @@ def get_plan(db: Session, plan_id: uuid.UUID) -> Plan | None:
 
 
 def approve_plan(db: Session, plan: Plan) -> Plan:
-    """Approve a proposed plan."""
+    """Approve a proposed plan and push blocks to Google Calendar if connected."""
     plan.status = "approved"
     db.commit()
     db.refresh(plan)
+
+    # Push to Google Calendar for user-scoped plans only
+    if plan.scope_type == ScopeType.USER:
+        user = db.get(User, plan.scope_id)
+        if user and user.google_access_token:
+            try:
+                google_calendar_service.ensure_fresh_token(db, user)
+                google_calendar_service.push_plan_to_google(db, plan, user)
+            except Exception:
+                pass  # Google push failure is non-fatal — plan is still approved
+
     return plan
 
 

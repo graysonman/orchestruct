@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     environment: str = "development"
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Google OAuth — all optional; None means Google login/sync is disabled
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_redirect_uri: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
