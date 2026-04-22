@@ -32,7 +32,7 @@ def test_create_goal(client: TestClient, auth_headers):
 
 def test_create_goal_unauthenticated(client: TestClient):
     res = client.post(GOALS_URL, json=GOAL_PAYLOAD)
-    assert res.status_code == 403
+    assert res.status_code == 401
 
 
 def test_list_goals(client: TestClient, auth_headers, created_goal):

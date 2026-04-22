@@ -433,6 +433,29 @@ Every record includes:
 - Error handling
 - Privacy compliance
 - Data encryption
+- **SQLAlchemy connection pool configuration** — set explicit `pool_size`, `max_overflow`, and `pool_timeout` on the engine; configure Celery workers to use scoped sessions with proper pool settings to prevent connection exhaustion under load
+### Stage 11: Performance & State Hardening
+ 
+#### Redis Caching Layer
+Extend Redis beyond its existing queue role to serve as an application cache:
+ 
+- **Availability grid caching** — cache computed availability grids per user on `GET /calendar` with a short TTL (e.g. 60–120s); invalidate on worklog write or calendar event change
+- **UserFeatures and TeamFeatures caching** — these are read on every plan generation but updated only when a worklog is submitted; cache with write-through invalidation
+- **`/metrics` endpoint caching** — aggregate stats are expensive to recompute; serve from Redis and recompute on a schedule or on worklog write
+- Cache keys should be scoped by `user_id` or `scope_id` to maintain multi-tenant isolation
+#### N+1 Query Audit and Resolution
+Audit all list-returning endpoints and the planning engine for N+1 patterns:
+ 
+- **Plan generation query** (`/plans/generate`) — the most query-heavy operation in the system; fetches goals, tasks, calendar events, and user features together; replace ORM lazy loading with explicit `joinedload` or `selectinload` for all related models, or drop to raw SQL for the availability grid computation
+- **Plan → PlanItems → Tasks → Goals traversal** — this 4-level join is the highest N+1 risk in the codebase; audit and add eager loading explicitly
+- **Team mode assignment suggestions** (Stage 6) — pulling capacity data across multiple users without batching will degrade linearly; batch user feature fetches into a single query
+- Document which queries were changed and why as part of the architecture documentation requirement in Stage 14
+#### Frontend Global State Management
+Refactor the approval flow and dashboard to use Zustand (preferred) or Redux:
+ 
+- Plan status transitions (`draft → proposed → approved → committed → invalidated`) are shared across the calendar UI, approval panel, and dashboard — centralize this in a global store
+- The approval interface should optimistically update plan state in the store on user action, then reconcile with the API response
+- Goal and task lists used across multiple views should be lifted into the store rather than fetched per-component
 
 ---
 

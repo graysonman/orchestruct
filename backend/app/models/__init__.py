@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.plan import Plan, PlanItem
 from app.models.user_schedule_config import UserScheduleConfig
 from app.models.calendar_event import CalendarEvent
+from app.models.meeting import MeetingTranscript, ExtractedActionItem
 
 __all__ = [
     "Base",
@@ -27,4 +28,6 @@ __all__ = [
     "UserScheduleConfig",
     "CalendarEvent",
     "Nudge",
+    "MeetingTranscript",
+    "ExtractedActionItem",
 ]

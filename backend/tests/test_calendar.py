@@ -338,15 +338,15 @@ class TestAvailability:
 class TestUnauthenticated:
     def test_config_unauthenticated(self, client: TestClient):
         res = client.get(CONFIG_URL)
-        assert res.status_code == 403
+        assert res.status_code == 401
 
     def test_events_unauthenticated(self, client: TestClient):
         res = client.get(EVENTS_URL, params={"start_date": "2026-03-01", "end_date": "2026-03-31"})
-        assert res.status_code == 403
+        assert res.status_code == 401
 
     def test_availability_unauthenticated(self, client: TestClient):
         res = client.get(
             AVAILABILITY_URL,
             params={"start_date": "2026-03-01", "end_date": "2026-03-31"},
         )
-        assert res.status_code == 403
+        assert res.status_code == 401

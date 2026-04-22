@@ -799,8 +799,248 @@ def assign_tasks_to_members(
             member_free[uid][day] -= task.estimated_minutes
             member_cursors[uid][day] = end
 
+    scheduled, optimization_summary = optimize_schedule(scheduled, tasks, None)
     risk_summary = compute_risk_metrics(scheduled, tasks)
+    risk_summary["optimization"] = optimization_summary
     return scheduled, risk_summary
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Post-Processing Optimizer
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _reslot_day_items(
+    ordered_items: list[ScheduledItem],
+    tasks: list[ScheduledTask],
+    day: date,
+    availability: list[DayAvailability] | None,
+) -> list[ScheduledItem]:
+    """Re-assign start/end times to items within a single day, in the given order.
+
+    Walks through the day's free slots (or default work hours if no availability),
+    placing each item sequentially. Returns the re-timed items, or the original
+    list unchanged if re-slotting fails (e.g., total duration exceeds capacity).
+    """
+    task_map = {t.task_id: t for t in tasks}
+
+    # Find this day's free slots
+    free_slots: list[TimeSlot] = []
+    if availability:
+        for day_avail in availability:
+            if day_avail.date == day and day_avail.work_hours and day_avail.free_slots:
+                free_slots = day_avail.free_slots
+                break
+
+    # Fall back to a single default-hours slot if none found
+    if not free_slots:
+        from app.services.availability_service import TimeSlot as TS
+        free_slots = [TS(start=DEFAULT_WORK_START, end=DEFAULT_WORK_END)]
+
+    result = []
+    cursor = free_slots[0].start
+
+    for item in ordered_items:
+        task = task_map.get(item.task_id)
+        duration = _minutes_between(item.start_time, item.end_time)
+        if task and task.estimated_minutes:
+            duration = task.estimated_minutes
+
+        slot = _find_slot_in_free_time(free_slots, cursor, duration)
+        if slot is None:
+            return list(ordered_items)  # fallback: return original ordering unchanged
+        start, end = slot
+        result.append(ScheduledItem(
+            task_id=item.task_id,
+            scheduled_date=item.scheduled_date,
+            start_time=start,
+            end_time=end,
+            risk_score=item.risk_score,
+            rationale=item.rationale,
+            assigned_to_user_id=item.assigned_to_user_id,
+        ))
+        cursor = end
+
+    return result
+
+
+def _goal_group_pass(
+    items: list[ScheduledItem],
+    tasks: list[ScheduledTask],
+    availability: list[DayAvailability] | None,
+) -> list[ScheduledItem]:
+    """Reorder tasks within each day to cluster same-goal tasks together.
+
+    Does not move tasks between days. Re-slots start/end times after reordering.
+    Reduces context_switching_count by batching same-goal work into contiguous blocks.
+    """
+    task_map = {t.task_id: t for t in tasks}
+    by_day = defaultdict(list)
+    for item in items:
+        by_day[item.scheduled_date].append(item)
+    
+    result = []
+    for day, item in by_day.items():
+        sorted_day = sorted(item, key=lambda i: task_map.get(i.task_id).goal_id or "")
+        reslotted = _reslot_day_items(sorted_day, tasks, day, availability)
+        result.extend(reslotted)
+    return result
+    
+
+
+def _stress_spread_pass(
+    items: list[ScheduledItem],
+    tasks: list[ScheduledTask],
+    availability: list[DayAvailability] | None,
+    max_iterations: int = 5,
+) -> list[ScheduledItem]:
+    """Move the hardest task off the most-stressed day to the lightest-stress day.
+
+    Per-day stress score = sum(difficulty + dislike_score) for all tasks on that day.
+    Runs up to max_iterations times, stopping early if no valid move exists.
+    A move is valid only if the target day has enough remaining capacity (minutes).
+    """
+    task_map = {t.task_id: t for t in tasks}
+    for _ in range(max_iterations):
+        stress_per_day = defaultdict(int)
+        for item in items:
+            task = task_map.get(item.task_id)
+            if task:
+                stress_per_day[item.scheduled_date] += task.difficulty + task.dislike_score
+        max_stress_day = max(stress_per_day, key= lambda d: stress_per_day[d])
+        day_items = [i for i in items if i.scheduled_date == max_stress_day]
+        hardest_day = max(day_items, key=lambda i: (task_map.get(i.task_id).difficulty + task_map.get(i.task_id).dislike_score))
+        day_metrics = _compute_day_metrics(items, availability)
+        remain_cap_per_day = {d: day_metrics[d]["available_minutes"] - day_metrics[d]["scheduled_minutes"] for d in day_metrics}
+        item_duration = task_map.get(hardest_day.task_id).estimated_minutes
+        candidates = [
+            d for d in stress_per_day
+            if d != max_stress_day
+            and remain_cap_per_day.get(d, 0) >= item_duration
+        ]
+        if not candidates:
+            break
+        target_day = min(candidates, key=lambda d: stress_per_day[d])
+        hardest_day.scheduled_date = target_day
+
+        source_items = [i for i in items if i.scheduled_date == max_stress_day]
+        target_items = [i for i in items if i.scheduled_date == target_day]
+
+        reslotted_source = _reslot_day_items(source_items, tasks, max_stress_day, availability)
+        reslotted_target = _reslot_day_items(target_items, tasks, target_day, availability)
+
+        items = [i for i in items if i.scheduled_date not in (max_stress_day, target_day)]
+        items.extend(reslotted_source)
+        items.extend(reslotted_target)
+    return items
+
+
+def _swap_pass(
+    items: list[ScheduledItem],
+    tasks: list[ScheduledTask],
+    availability: list[DayAvailability] | None,
+) -> list[ScheduledItem]:
+    """Try all pairwise day swaps; keep any swap that improves quality_score.
+
+    For each pair of items on different days, checks if swapping their days is
+    feasible (both tasks fit in the other day's remaining capacity after removing
+    their own duration). Evaluates quality via compute_risk_metrics()['quality_score'].
+
+    TODO(human): Implement the pairwise swap logic below.
+    Steps:
+      1. Compute baseline quality_score = compute_risk_metrics(items, tasks)["quality_score"]
+      2. Loop over all pairs (i, j) where i < j and items[i].scheduled_date != items[j].scheduled_date:
+           a. Get task durations from task_map (use estimated_minutes, fall back to _minutes_between)
+           b. Check feasibility:
+                - day_i remaining capacity (excluding item_i) >= duration_j
+                - day_j remaining capacity (excluding item_j) >= duration_i
+              Use _compute_day_metrics to get scheduled_minutes per day; subtract item's own duration
+              and compare against available_minutes
+           c. Tentatively swap: swap scheduled_date between items[i] and items[j]
+              Re-slot both items' times using _reslot_day_items on their new days
+           d. Evaluate new_score = compute_risk_metrics(candidate, tasks)["quality_score"]
+           e. If new_score > baseline_score: commit the swap, update baseline_score, update items
+              Else: revert (restore original scheduled_dates and times)
+      3. Return the final items list
+    Replace the `pass` and `return items` below with your implementation.
+    """
+    task_map = {t.task_id: t for t in tasks}
+    quality_score = compute_risk_metrics(items, tasks)["quality_score"]
+    day_metrics = _compute_day_metrics(items, availability)
+    for i in range(len(items)):
+        for j in range(i+1, len(items)):
+            if items[i].scheduled_date == items[j].scheduled_date:
+                continue
+            dur_i = task_map.get(items[i].task_id).estimated_minutes
+            dur_j = task_map.get(items[j].task_id).estimated_minutes
+            day_i, day_j = items[i].scheduled_date, items[j].scheduled_date
+            cap_i = day_metrics[day_i]["available_minutes"] - day_metrics[day_i]["scheduled_minutes"]
+            cap_j = day_metrics[day_j]["available_minutes"] - day_metrics[day_j]["scheduled_minutes"]
+            if not (cap_i + dur_i >= dur_j and cap_j + dur_j >= dur_i):
+                continue
+            items[i].scheduled_date, items[j].scheduled_date = items[j].scheduled_date, items[i].scheduled_date
+            new_day_i_items = _reslot_day_items([x for x in items if x.scheduled_date == day_i], tasks, day_i, availability)
+            new_day_j_items = _reslot_day_items([x for x in items if x.scheduled_date == day_j], tasks, day_j, availability)
+            candidate = [x for x in items if x.scheduled_date not in (day_i, day_j)]
+            candidate.extend(new_day_i_items)
+            candidate.extend(new_day_j_items)
+            new_score = compute_risk_metrics(candidate, tasks)["quality_score"]
+            if new_score >= quality_score:
+                items = candidate
+                quality_score = new_score
+                day_metrics = _compute_day_metrics(items, availability)
+            else:
+                items[i].scheduled_date, items[j].scheduled_date = items[j].scheduled_date, items[i].scheduled_date
+    return items
+
+def optimize_schedule(
+    items: list[ScheduledItem],
+    tasks: list[ScheduledTask],
+    availability: list[DayAvailability] | None,
+) -> tuple[list[ScheduledItem], dict]:
+    """Run all three optimization passes over a greedy schedule.
+
+    Passes run in order: goal grouping → stress spread → pairwise swap.
+    Each pass uses the output of the previous. If a pass degrades quality, it is
+    skipped (the previous best is kept). Returns the improved item list and a
+    summary of what changed.
+    """
+    if not items:
+        return items, {
+            "passes_applied": [],
+            "quality_before": 0,
+            "quality_after": 0,
+            "context_switches_before": 0,
+            "context_switches_after": 0,
+        }
+
+    baseline_metrics = compute_risk_metrics(items, tasks, availability)
+    quality_before = baseline_metrics.get("quality_score", 0)
+    switches_before = baseline_metrics.get("context_switching_count", 0)
+
+    passes_applied = []
+    current = items
+
+    for pass_fn, pass_name in [
+        (_goal_group_pass, "goal_group"),
+        (_stress_spread_pass, "stress_spread"),
+        (_swap_pass, "swap"),
+    ]:
+        candidate = pass_fn(current, tasks, availability)
+        candidate_score = compute_risk_metrics(candidate, tasks, availability).get("quality_score", 0)
+        current_score = compute_risk_metrics(current, tasks, availability).get("quality_score", 0)
+        if candidate_score >= current_score:
+            current = candidate
+            passes_applied.append(pass_name)
+
+    final_metrics = compute_risk_metrics(current, tasks, availability)
+    return current, {
+        "passes_applied": passes_applied,
+        "quality_before": quality_before,
+        "quality_after": final_metrics.get("quality_score", 0),
+        "context_switches_before": switches_before,
+        "context_switches_after": final_metrics.get("context_switching_count", 0),
+    }
 
 
 def run(
@@ -862,5 +1102,7 @@ def run(
         grid = build_availability_grid_default(window_start, window_end)
         items = _place_tasks_default(tasks, grid)
 
+    items, optimization_summary = optimize_schedule(items, tasks, availability)
     risk_summary = compute_risk_metrics(items, tasks, availability)
+    risk_summary["optimization"] = optimization_summary
     return items, risk_summary

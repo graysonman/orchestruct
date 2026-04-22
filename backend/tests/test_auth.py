@@ -51,4 +51,4 @@ def test_me_authenticated(client: TestClient):
 
 def test_me_unauthenticated(client: TestClient):
     res = client.get(ME_URL)
-    assert res.status_code == 403
+    assert res.status_code == 401
