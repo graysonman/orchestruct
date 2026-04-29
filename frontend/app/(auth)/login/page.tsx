@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { useLogin } from "@/lib/api/auth";
+import { safeNextPath } from "@/lib/auth/safe-next-path";
 
 const loginSchema = z.object({
   email: z.email("Invalid Email Format"),
@@ -15,14 +16,6 @@ const loginSchema = z.object({
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
-
-const RELATIVE_PATH = /^\/(?!\/)/; // matches "/x" but not "//x" — guards against open-redirect
-
-function safeNextPath(value: string | null): string {
-  if (!value) return "/dashboard";
-  if (!RELATIVE_PATH.test(value)) return "/dashboard";
-  return value;
-}
 
 export default function LoginPage() {
   const router = useRouter();
