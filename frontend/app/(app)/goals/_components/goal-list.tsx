@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useDeleteGoal, useGoals, useUpdateGoal, type Goal } from "@/lib/api/goals";
 
 /** Format a bare "YYYY-MM-DD" without going through Date.
@@ -36,7 +38,11 @@ function GoalCard({ goal }: { goal: Goal }) {
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium">{goal.title}</h3>
+          <h3 className="text-sm font-medium">
+            <Link href={`/goals/${goal.id}`} className="hover:underline">
+              {goal.title}
+            </Link>
+          </h3>
           {goal.description && (
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
               {goal.description}

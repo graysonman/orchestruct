@@ -38,10 +38,13 @@ export const config = {
   //
   // Listing the protected segments explicitly is clearer than negative lookaheads
   // and easier to extend as new protected sections are added.
+  // No "/tasks" entry: the API mounts tasks at /goals/{goal_id}/tasks and has
+  // no cross-goal listing, so a top-level page would have to fetch every goal
+  // and then issue one request per goal. Tasks live under /goals/:id, which
+  // "/goals/:path*" already covers.
   matcher: [
     "/dashboard/:path*",
     "/goals/:path*",
-    "/tasks/:path*",
     "/plans/:path*",
     "/calendar/:path*",
     "/worklogs/:path*",
