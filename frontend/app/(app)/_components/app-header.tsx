@@ -5,6 +5,8 @@ import Link from "next/link";
 
 import { useLogout, type CurrentUser } from "@/lib/api/auth";
 
+import { AppNav } from "./app-nav";
+
 export function AppHeader({ user }: { user: CurrentUser }) {
   const router = useRouter();
   const logout = useLogout();
@@ -21,9 +23,12 @@ export function AppHeader({ user }: { user: CurrentUser }) {
   return (
     <header className="border-b border-zinc-200 dark:border-zinc-800">
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-3">
-        <Link href="/dashboard" className="text-sm font-semibold tracking-tight">
-          Orchestruct
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/dashboard" className="text-sm font-semibold tracking-tight">
+            Orchestruct
+          </Link>
+          <AppNav />
+        </div>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-zinc-600 dark:text-zinc-400">
             {user.full_name ?? user.email}

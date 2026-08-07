@@ -13,30 +13,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const code = params.get("code");
   const state = params.get("state") ?? "";
 
-  // TODO(human): Add input validation BEFORE the fetch below.
-  //
-  // Three failure modes can land the browser here:
-  //
-  //   1. The user clicked "Cancel" on Google's consent screen. Google then
-  //      redirects to <callback>?error=access_denied&error_description=...&state=...
-  //      No `code` is present. This is a normal, expected, user-driven case.
-  //
-  //   2. Google redirected us with `?error=<something_else>` — invalid scope,
-  //      misconfigured redirect URI, etc. Also no `code`.
-  //
-  //   3. `code` is just plain missing for an unknown reason (someone navigated
-  //      directly to /api/auth/google/callback, a misconfiguration somewhere).
-  //
-  // The rest of this handler assumes `code` is a non-empty string. Decide
-  // what to do for each case above and return a NextResponse.redirect to
-  // /login with a query param that the login page can render a message from.
-  //
-  // Build absolute URLs with `new URL("/login?error=...", request.url)`.
-  // The redirect status should be 302.
+  // Google redirects here with `?error=...` (and no `code`) when the user
+  // declines consent or the OAuth app is misconfigured. This endpoint is
+  // publicly reachable, so `error` is attacker-controlled: never interpolate
+  // it into a URL. Map known values to fixed codes and discard the rest.
+  const oauthError = params.get("error");
+  if (oauthError) {
+    const reason =
+      oauthError === "access_denied" ? "google_denied" : "google_failed";
+    return NextResponse.redirect(
+      new URL(`/login?error=${reason}`, request.url),
+      302,
+    );
+  }
+
+  // No code and no error: direct navigation, or a redirect_uri mismatch.
+  if (!code) {
+    return NextResponse.redirect(
+      new URL("/login?error=google_no_code", request.url),
+      302,
+    );
+  }
 
   let upstream: Response;
   try {
-    const qs = new URLSearchParams({ code: code as string, state }).toString();
+    const qs = new URLSearchParams({ code, state }).toString();
     upstream = await fetch(`${FASTAPI_URL}/api/v1/auth/google/callback?${qs}`, {
       headers: { Accept: "application/json" },
       cache: "no-store",

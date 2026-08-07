@@ -7,10 +7,11 @@ import LoginPage from "./page";
 
 const replaceMock = vi.fn();
 const refreshMock = vi.fn();
+const searchParamsRef = { current: new URLSearchParams() };
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock, refresh: refreshMock }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParamsRef.current,
 }));
 
 const loginMutateMock = vi.fn();
@@ -40,6 +41,7 @@ describe("LoginPage", () => {
     refreshMock.mockClear();
     loginMutateMock.mockClear();
     loginPendingRef.current = false;
+    searchParamsRef.current = new URLSearchParams();
   });
 
   afterEach(() => {
@@ -92,5 +94,23 @@ describe("LoginPage", () => {
 
     expect(await screen.findByText(/invalid credentials/i)).toBeInTheDocument();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("links to the Google OAuth route", () => {
+    renderLogin();
+    const link = screen.getByRole("link", { name: /continue with google/i });
+    expect(link).toHaveAttribute("href", "/api/auth/google");
+  });
+
+  it("renders a message for a known OAuth error code", () => {
+    searchParamsRef.current = new URLSearchParams("error=google_denied");
+    renderLogin();
+    expect(screen.getByRole("alert")).toHaveTextContent(/cancelled/i);
+  });
+
+  it("renders nothing for an unrecognized OAuth error code", () => {
+    searchParamsRef.current = new URLSearchParams("error=<script>alert(1)</script>");
+    renderLogin();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

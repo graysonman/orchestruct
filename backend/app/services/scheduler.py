@@ -946,23 +946,8 @@ def _swap_pass(
     feasible (both tasks fit in the other day's remaining capacity after removing
     their own duration). Evaluates quality via compute_risk_metrics()['quality_score'].
 
-    TODO(human): Implement the pairwise swap logic below.
-    Steps:
-      1. Compute baseline quality_score = compute_risk_metrics(items, tasks)["quality_score"]
-      2. Loop over all pairs (i, j) where i < j and items[i].scheduled_date != items[j].scheduled_date:
-           a. Get task durations from task_map (use estimated_minutes, fall back to _minutes_between)
-           b. Check feasibility:
-                - day_i remaining capacity (excluding item_i) >= duration_j
-                - day_j remaining capacity (excluding item_j) >= duration_i
-              Use _compute_day_metrics to get scheduled_minutes per day; subtract item's own duration
-              and compare against available_minutes
-           c. Tentatively swap: swap scheduled_date between items[i] and items[j]
-              Re-slot both items' times using _reslot_day_items on their new days
-           d. Evaluate new_score = compute_risk_metrics(candidate, tasks)["quality_score"]
-           e. If new_score > baseline_score: commit the swap, update baseline_score, update items
-              Else: revert (restore original scheduled_dates and times)
-      3. Return the final items list
-    Replace the `pass` and `return items` below with your implementation.
+    A swap is committed only if it strictly improves quality_score; otherwise the
+    original scheduled_dates and times are restored.
     """
     task_map = {t.task_id: t for t in tasks}
     quality_score = compute_risk_metrics(items, tasks)["quality_score"]
