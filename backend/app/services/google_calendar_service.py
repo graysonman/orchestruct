@@ -320,7 +320,7 @@ def push_plan_to_google(
     calendars — that is a Stage 9 concern.
 
     Steps for each PlanItem:
-    1. Look up the Task to get its title
+    1. Read item.task for its title (eager-loaded by the caller)
     2. Build a Google event dict with summary, start dateTime, end dateTime
     3. POST to GOOGLE_CALENDAR_EVENTS_URL
     4. Store the returned event["id"] in plan_item.rationale["google_event_id"]
@@ -336,7 +336,10 @@ def push_plan_to_google(
     """
     event_list = []
     for item in plan.items:
-        task = db.get(Task, item.task_id)
+        # item.task is eager-loaded by plan_service.get_plan; reading it here
+        # costs no query. Falling back to db.get keeps this callable with a
+        # plan that was loaded some other way.
+        task = item.task or db.get(Task, item.task_id)
         title = task.title if task else "Planned Task"
         google_event_dict = {
             "summary": title,

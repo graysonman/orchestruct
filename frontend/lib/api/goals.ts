@@ -1,9 +1,9 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AxiosError } from "axios";
 
-import { apiClient, type ApiErrorBody } from "@/lib/api/client";
+import { apiClient } from "@/lib/api/client";
+import { toApiError } from "@/lib/api/errors";
 
 /** Mirrors backend `GoalResponse` (app/schemas/goals.py).
  *
@@ -54,20 +54,6 @@ export type GoalUpdateInput = Partial<GoalCreateInput> & { is_active?: boolean }
 
 export const goalsQueryKey = ["goals"] as const;
 
-/** Unwrap FastAPI's error shape into a plain Error.
- *
- * `detail` is a string for our own HTTPExceptions but an array of objects for
- * pydantic validation failures, so anything non-string falls back to a generic
- * message rather than rendering "[object Object]" at the user.
- */
-function toError(error: unknown, fallback: string): Error {
-  if (error instanceof AxiosError) {
-    const data = error.response?.data as ApiErrorBody | undefined;
-    if (typeof data?.detail === "string") return new Error(data.detail);
-  }
-  return error instanceof Error ? error : new Error(fallback);
-}
-
 export function useGoals() {
   return useQuery({
     queryKey: goalsQueryKey,
@@ -86,7 +72,7 @@ export function useCreateGoal() {
         const { data } = await apiClient.post<Goal>("/goals", input);
         return data;
       } catch (error) {
-        throw toError(error, "Could not create goal");
+        throw toApiError(error, "Could not create goal");
       }
     },
     onSuccess: () => {
@@ -106,7 +92,7 @@ export function useUpdateGoal() {
         const { data } = await apiClient.patch<Goal>(`/goals/${id}`, input);
         return data;
       } catch (error) {
-        throw toError(error, "Could not update goal");
+        throw toApiError(error, "Could not update goal");
       }
     },
     onSuccess: () => {
@@ -122,7 +108,7 @@ export function useDeleteGoal() {
       try {
         await apiClient.delete(`/goals/${id}`);
       } catch (error) {
-        throw toError(error, "Could not delete goal");
+        throw toApiError(error, "Could not delete goal");
       }
     },
     onSuccess: () => {

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 
@@ -17,3 +17,8 @@ class WorkLog(Base, TimestampMixin):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+
+    # Read by WorkLogResponse (for titles) and by behavior_service, which
+    # compares logged duration against the task's estimate. Both walk it once
+    # per log, so callers eager-load it — see list_worklogs.
+    task: Mapped["Task"] = relationship("Task")

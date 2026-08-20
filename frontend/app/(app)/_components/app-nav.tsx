@@ -14,6 +14,8 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/goals", label: "Goals" },
+  { href: "/plans", label: "Plans" },
+  { href: "/worklogs", label: "Work log" },
 ] as const;
 
 export function AppNav() {

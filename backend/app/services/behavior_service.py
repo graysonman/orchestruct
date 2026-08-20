@@ -2,26 +2,32 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.plan import Plan, PlanItem
 from app.models.user_features import UserFeatures
 from app.models.work_log import WorkLog
-from app.models.task import Task
 
 
 def compute_user_features(db: Session, user_id: uuid.UUID) -> dict:
     """Compute behavioral features from work log history.
     Returns dict suitable for upserting into UserFeatures.
     """
-    all_logs = db.scalars(select(WorkLog).where(WorkLog.user_id == user_id)).all()
+    # Tasks are eager-loaded because this now runs on every worklog write, not
+    # just on a stale /metrics read — a user with hundreds of logs would
+    # otherwise pay one query per log on every submission.
+    all_logs = db.scalars(
+        select(WorkLog)
+        .where(WorkLog.user_id == user_id)
+        .options(joinedload(WorkLog.task))
+    ).all()
     total_count = len(all_logs)
     completed_logs = [l for l in all_logs if l.completed and l.ended_at is not None]
     completed_count = len(completed_logs)
 
     ratios = []
     for log in completed_logs:
-        task = db.get(Task, log.task_id)
+        task = log.task
         if task is None or task.estimated_minutes is None or task.estimated_minutes <= 0:
             continue
         actual_mins = (log.ended_at - log.started_at).total_seconds() / 60

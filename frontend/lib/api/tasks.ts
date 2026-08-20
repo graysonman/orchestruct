@@ -1,9 +1,9 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AxiosError } from "axios";
 
-import { apiClient, type ApiErrorBody } from "@/lib/api/client";
+import { apiClient } from "@/lib/api/client";
+import { toApiError } from "@/lib/api/errors";
 
 /** Mirrors backend `TaskResponse` (app/schemas/goals.py).
  *
@@ -44,14 +44,6 @@ export type TaskUpdateInput = Partial<TaskCreateInput> & { status?: string };
  * for two goals must never collide. */
 export const tasksQueryKey = (goalId: string) => ["goals", goalId, "tasks"] as const;
 
-function toError(error: unknown, fallback: string): Error {
-  if (error instanceof AxiosError) {
-    const data = error.response?.data as ApiErrorBody | undefined;
-    if (typeof data?.detail === "string") return new Error(data.detail);
-  }
-  return error instanceof Error ? error : new Error(fallback);
-}
-
 export function useTasks(goalId: string) {
   return useQuery({
     queryKey: tasksQueryKey(goalId),
@@ -70,7 +62,7 @@ export function useCreateTask(goalId: string) {
         const { data } = await apiClient.post<Task>(`/goals/${goalId}/tasks`, input);
         return data;
       } catch (error) {
-        throw toError(error, "Could not create task");
+        throw toApiError(error, "Could not create task");
       }
     },
     onSuccess: () => {
@@ -93,7 +85,7 @@ export function useUpdateTask(goalId: string) {
         );
         return data;
       } catch (error) {
-        throw toError(error, "Could not update task");
+        throw toApiError(error, "Could not update task");
       }
     },
     onSuccess: () => {
@@ -109,7 +101,7 @@ export function useDeleteTask(goalId: string) {
       try {
         await apiClient.delete(`/goals/${goalId}/tasks/${id}`);
       } catch (error) {
-        throw toError(error, "Could not delete task");
+        throw toApiError(error, "Could not delete task");
       }
     },
     onSuccess: () => {

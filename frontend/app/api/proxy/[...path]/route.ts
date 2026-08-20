@@ -54,7 +54,7 @@ async function proxy(
       cache: "no-store",
       redirect: "manual",
     });
-  } catch (err) {
+  } catch {
     return Response.json(
       { detail: "Upstream unreachable" },
       { status: 502 },

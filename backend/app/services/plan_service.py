@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, time
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.base import ScopeType
 from app.models.goal import Goal
@@ -136,22 +136,44 @@ def generate_plan(
         )
         db.add(planned_item)
 
+    plan_id = plan.id
     db.commit()
-    _ = plan.items  # Lazy load before session closes
+
+    # commit() expires every attribute, and the response serializer walks
+    # plan -> items -> task. Re-fetch with both hops eager-loaded so that walk
+    # costs two queries instead of one per item.
+    plan = db.scalars(
+        select(Plan)
+        .where(Plan.id == plan_id)
+        .options(selectinload(Plan.items).joinedload(PlanItem.task))
+    ).first()
 
     return plan
 
 
 def get_plan(db: Session, plan_id: uuid.UUID) -> Plan | None:
-    """Get a plan by ID."""
-    return db.get(Plan, plan_id)
+    """Get a plan by ID, with items and their tasks eager-loaded.
+
+    PlanItemResponse embeds a TaskSummary, so serializing the response reads
+    `item.task` for every item. Loading that here keeps the request at two
+    queries regardless of how many items the plan has.
+    """
+    return db.scalars(
+        select(Plan)
+        .where(Plan.id == plan_id)
+        .options(selectinload(Plan.items).joinedload(PlanItem.task))
+    ).first()
 
 
 def approve_plan(db: Session, plan: Plan) -> Plan:
     """Approve a proposed plan and push blocks to Google Calendar if connected."""
+    plan_id = plan.id
     plan.status = "approved"
     db.commit()
-    db.refresh(plan)
+
+    # Not db.refresh(): refresh() takes no loader options, and both the Google
+    # push below and the response serializer walk plan -> items -> task.
+    plan = get_plan(db, plan_id)
 
     # Push to Google Calendar for user-scoped plans only
     if plan.scope_type == ScopeType.USER:
@@ -160,6 +182,9 @@ def approve_plan(db: Session, plan: Plan) -> Plan:
             try:
                 google_calendar_service.ensure_fresh_token(db, user)
                 google_calendar_service.push_plan_to_google(db, plan, user)
+                # The push commits its rationale updates, expiring the graph
+                # above — reload it for the response.
+                plan = get_plan(db, plan_id)
             except Exception:
                 pass  # Google push failure is non-fatal — plan is still approved
 
@@ -168,7 +193,8 @@ def approve_plan(db: Session, plan: Plan) -> Plan:
 
 def reject_plan(db: Session, plan: Plan) -> Plan:
     """Reject/invalidate a plan."""
+    plan_id = plan.id
     plan.status = "invalidated"
     db.commit()
-    db.refresh(plan)
-    return plan
+    # Not db.refresh(): the response serializer walks plan -> items -> task.
+    return get_plan(db, plan_id)

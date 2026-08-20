@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel
 
+from app.schemas.goals import TaskSummary
+
 
 class WorkLogCreate(BaseModel):
     task_id: uuid.UUID
@@ -27,5 +29,6 @@ class WorkLogResponse(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+    task: TaskSummary
 
     model_config = {"from_attributes": True}

@@ -35,3 +35,5 @@ class PlanItem(Base):
         ForeignKey("users.id"), nullable=True
     )
     plan: Mapped["Plan"] = relationship("Plan", back_populates="items")
+    task: Mapped["Task"] = relationship("Task")
+    

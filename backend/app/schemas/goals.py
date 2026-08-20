@@ -92,3 +92,24 @@ class TaskResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TaskSummary(BaseModel):
+    """Task identity embedded in records that only store a `task_id`.
+
+    Plan items and work logs both reference a task by id alone, so a schedule
+    or a history rendered from those rows has no titles. Embedding this saves
+    the client a request per row — and there is no endpoint it could use for
+    that anyway, since tasks are only reachable under their goal.
+
+    Lives here rather than beside either consumer because it describes a task.
+    Callers must eager-load the relationship or serializing a list of them costs
+    one query per row.
+    """
+
+    id: uuid.UUID
+    goal_id: uuid.UUID
+    title: str
+    estimated_minutes: int | None
+
+    model_config = {"from_attributes": True}

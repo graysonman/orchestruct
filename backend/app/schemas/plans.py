@@ -4,6 +4,7 @@ from datetime import date, time, datetime
 from pydantic import BaseModel, Field
 
 from app.models.base import ScopeType
+from app.schemas.goals import TaskSummary
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -108,7 +109,6 @@ class RiskSummary(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 # Response Models
 # ─────────────────────────────────────────────────────────────────────────────
-
 class PlanItemResponse(BaseModel):
     id: uuid.UUID
     plan_id: uuid.UUID
@@ -120,6 +120,7 @@ class PlanItemResponse(BaseModel):
     rationale: dict | None
     created_at: datetime
     assigned_to_user_id: uuid.UUID | None = None
+    task: TaskSummary
 
     model_config = {"from_attributes": True}
 

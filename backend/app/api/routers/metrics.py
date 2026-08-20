@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date
 from fastapi import APIRouter
 
 from app.api.deps import CurrentUser
@@ -8,27 +8,22 @@ from app.services import behavior_service
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
-STALENESS_THRESHOLD = timedelta(days=1)
-
 
 @router.get("/me", response_model=UserFeaturesResponse)
 def get_my_metrics(db: DBSession, current_user: CurrentUser):
-    """Return current user's behavioral features, recomputing if stale (>1 day)."""
+    """Return the current user's behavioral features.
+
+    A plain read. Features are recomputed by the worklog endpoints whenever a
+    log is written or amended, so what is stored is always current with the
+    user's history — there is nothing to refresh here.
+
+    The one exception is a user who has never logged work: they have no row
+    yet, and computing one gives the expected zeroed defaults rather than a
+    404 the caller would have to special-case.
+    """
     features = behavior_service.get_user_features(db, current_user.id)
-
-    last_computed = features.last_computed_at if features else None
-    if last_computed is not None and last_computed.tzinfo is None:
-        last_computed = last_computed.replace(tzinfo=timezone.utc)
-
-    stale = (
-        features is None
-        or last_computed is None
-        or datetime.now(timezone.utc) - last_computed > STALENESS_THRESHOLD
-    )
-
-    if stale:
+    if features is None:
         features = behavior_service.update_user_features(db, current_user.id)
-
     return features
 
 

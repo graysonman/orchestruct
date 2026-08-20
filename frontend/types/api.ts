@@ -402,10 +402,22 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Worklogs */
+        /**
+         * List Worklogs
+         * @description Newest first — a history is read from the most recent entry backwards.
+         */
         get: operations["list_worklogs_api_v1_worklogs_get"];
         put?: never;
-        /** Create Worklog */
+        /**
+         * Create Worklog
+         * @description Record time spent on a task, then refresh the user's behavioral features.
+         *
+         *     The recompute is what closes the learning loop: comparing logged duration
+         *     against the task's estimate updates `estimation_bias_multiplier`, which
+         *     plan_service reads on the next generation to pad or trim estimates. Without
+         *     it, logging work would change nothing until `GET /metrics/me` happened to
+         *     run and find the features more than a day stale.
+         */
         post: operations["create_worklog_api_v1_worklogs_post"];
         delete?: never;
         options?: never;
@@ -427,7 +439,19 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Worklog
+         * @description Amend a log — in practice, closing one that was started without an end.
+         *
+         *     Starting a log and stopping it later is the only way to time work as it
+         *     happens; a log with no `ended_at` is invisible to the learning loop until
+         *     this endpoint gives it one.
+         *
+         *     `exclude_unset` is what makes a partial update possible: an omitted key is
+         *     left alone, while an explicit null clears the column. Sending
+         *     `{"ended_at": null}` reopens a log rather than being ignored.
+         */
+        patch: operations["update_worklog_api_v1_worklogs__worklog_id__patch"];
         trace?: never;
     };
     "/api/v1/metrics/me": {
@@ -439,7 +463,15 @@ export interface paths {
         };
         /**
          * Get My Metrics
-         * @description Return current user's behavioral features, recomputing if stale (>1 day).
+         * @description Return the current user's behavioral features.
+         *
+         *     A plain read. Features are recomputed by the worklog endpoints whenever a
+         *     log is written or amended, so what is stored is always current with the
+         *     user's history — there is nothing to refresh here.
+         *
+         *     The one exception is a user who has never logged work: they have no row
+         *     yet, and computing one gives the expected zeroed defaults rather than a
+         *     404 the caller would have to special-case.
          */
         get: operations["get_my_metrics_api_v1_metrics_me_get"];
         put?: never;
@@ -760,7 +792,9 @@ export interface components {
             /** Days */
             days: components["schemas"]["DayAvailabilityResponse"][];
             /** Summary */
-            summary: Record<string, never>;
+            summary: {
+                [key: string]: unknown;
+            };
         };
         /** AvailabilitySummaryResponse */
         AvailabilitySummaryResponse: {
@@ -922,7 +956,9 @@ export interface components {
             /** Max Weekly Hours */
             max_weekly_hours?: number | null;
             /** Constraints */
-            constraints?: Record<string, never> | null;
+            constraints?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** GoalResponse */
         GoalResponse: {
@@ -954,7 +990,9 @@ export interface components {
             /** Max Weekly Hours */
             max_weekly_hours: number | null;
             /** Constraints */
-            constraints: Record<string, never> | null;
+            constraints: {
+                [key: string]: unknown;
+            } | null;
             /** Is Active */
             is_active: boolean;
             /**
@@ -987,7 +1025,9 @@ export interface components {
             /** Max Weekly Hours */
             max_weekly_hours?: number | null;
             /** Constraints */
-            constraints?: Record<string, never> | null;
+            constraints?: {
+                [key: string]: unknown;
+            } | null;
             /** Is Active */
             is_active?: boolean | null;
         };
@@ -1084,7 +1124,9 @@ export interface components {
             /** Message */
             message: string;
             /** Trigger Data */
-            trigger_data: Record<string, never> | null;
+            trigger_data: {
+                [key: string]: unknown;
+            } | null;
             /** Status */
             status: string;
             /** Acknowledged At */
@@ -1152,7 +1194,9 @@ export interface components {
             /** Risk Score */
             risk_score: number | null;
             /** Rationale */
-            rationale: Record<string, never> | null;
+            rationale: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Created At
              * Format: date-time
@@ -1160,6 +1204,7 @@ export interface components {
             created_at: string;
             /** Assigned To User Id */
             assigned_to_user_id?: string | null;
+            task: components["schemas"]["TaskSummary"];
         };
         /** PlanResponse */
         PlanResponse: {
@@ -1187,7 +1232,9 @@ export interface components {
             /** Status */
             status: string;
             /** Risk Summary */
-            risk_summary: Record<string, never> | null;
+            risk_summary: {
+                [key: string]: unknown;
+            } | null;
             /** Items */
             items: components["schemas"]["PlanItemResponse"][];
             /**
@@ -1232,7 +1279,9 @@ export interface components {
              */
             work_end_time: string;
             /** Day Overrides */
-            day_overrides?: Record<string, never> | null;
+            day_overrides?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** ScheduleConfigResponse */
         ScheduleConfigResponse: {
@@ -1265,7 +1314,9 @@ export interface components {
              */
             work_end_time: string;
             /** Day Overrides */
-            day_overrides?: Record<string, never> | null;
+            day_overrides?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Id
              * Format: uuid
@@ -1298,7 +1349,9 @@ export interface components {
             /** Work End Time */
             work_end_time?: string | null;
             /** Day Overrides */
-            day_overrides?: Record<string, never> | null;
+            day_overrides?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * ScheduleType
@@ -1372,6 +1425,35 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * TaskSummary
+         * @description Task identity embedded in records that only store a `task_id`.
+         *
+         *     Plan items and work logs both reference a task by id alone, so a schedule
+         *     or a history rendered from those rows has no titles. Embedding this saves
+         *     the client a request per row — and there is no endpoint it could use for
+         *     that anyway, since tasks are only reachable under their goal.
+         *
+         *     Lives here rather than beside either consumer because it describes a task.
+         *     Callers must eager-load the relationship or serializing a list of them costs
+         *     one query per row.
+         */
+        TaskSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Goal Id
+             * Format: uuid
+             */
+            goal_id: string;
+            /** Title */
+            title: string;
+            /** Estimated Minutes */
+            estimated_minutes: number | null;
         };
         /** TaskUpdate */
         TaskUpdate: {
@@ -1473,7 +1555,9 @@ export interface components {
             /** Estimation Bias Multiplier */
             estimation_bias_multiplier: number;
             /** Focus Probability By Hour */
-            focus_probability_by_hour: Record<string, never> | null;
+            focus_probability_by_hour: {
+                [key: string]: unknown;
+            } | null;
             /** Reschedule Rate */
             reschedule_rate: number;
             /** Burnout Score */
@@ -1576,6 +1660,16 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            task: components["schemas"]["TaskSummary"];
+        };
+        /** WorkLogUpdate */
+        WorkLogUpdate: {
+            /** Ended At */
+            ended_at?: string | null;
+            /** Completed */
+            completed?: boolean | null;
+            /** Notes */
+            notes?: string | null;
         };
     };
     responses: never;
@@ -2578,6 +2672,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkLogResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_worklog_api_v1_worklogs__worklog_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                worklog_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkLogUpdate"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
